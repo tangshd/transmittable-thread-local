@@ -16,7 +16,7 @@ import java.util.WeakHashMap;
  * @see TtlCallable
  * @since 0.10.0
  */
-public class TransmittableThreadLocal<T> extends InheritableThreadLocal<T> {
+public class TransmittableThreadLocal<T> extends ThreadLocal<T> {
     /**
      * Computes the value for this transmittable thread-local variable
      * as a function of the source thread's value at the time the task

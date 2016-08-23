@@ -81,7 +81,7 @@ public class TtlRunnableTest {
         ConcurrentMap<String, TransmittableThreadLocal<String>> ttlInstances = createTestTtlValue();
 
         Task task = new Task("1", ttlInstances);
-        Thread thread1 = new Thread(task);
+        Thread thread1 = new Thread(TtlRunnable.get(task));
 
         // create after new Task, won't see parent value in in task!
         TransmittableThreadLocal<String> after = new TransmittableThreadLocal<String>();
