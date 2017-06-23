@@ -5,14 +5,15 @@ import com.alibaba.ttl.Utils;
 import com.alibaba.ttl.testmodel.Task;
 
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.alibaba.ttl.Utils.CHILD;
 import static com.alibaba.ttl.Utils.PARENT_AFTER_CREATE_TTL_TASK;
@@ -22,6 +23,8 @@ import static com.alibaba.ttl.Utils.assertTtlInstances;
 import static com.alibaba.ttl.Utils.copied;
 import static com.alibaba.ttl.Utils.createTestTtlValue;
 import static com.alibaba.ttl.Utils.expandThreadPool;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 /**
  * @author Jerry Lee (oldratlee at gmail dot com)
@@ -35,7 +38,7 @@ public final class AgentCheck {
     public static void main(String[] args) throws Exception {
         try {
             ThreadPoolExecutor executorService = new ThreadPoolExecutor(3, 3,
-                    3L, TimeUnit.SECONDS,
+                    10L, TimeUnit.SECONDS,
                     new LinkedBlockingQueue<Runnable>());
             ScheduledThreadPoolExecutor scheduledExecutorService = new ScheduledThreadPoolExecutor(3);
 
@@ -45,6 +48,7 @@ public final class AgentCheck {
             ConcurrentMap<String, TransmittableThreadLocal<String>> ttlInstances = createTestTtlValue();
 
             checkExecutorService(executorService, ttlInstances);
+            checkThreadPoolExecutorForRemoveMethod(executorService);
             checkScheduledExecutorService(scheduledExecutorService, ttlInstances);
 
             System.out.println();
@@ -64,7 +68,8 @@ public final class AgentCheck {
                 System.exit(1);
             }
         } catch (Throwable e) {
-            e.printStackTrace();
+            System.out.println("Exception when run AgentCheck: ");
+            e.printStackTrace(System.out);
             System.exit(2);
         }
     }
@@ -95,6 +100,51 @@ public final class AgentCheck {
                 PARENT_MODIFIED_IN_CHILD, PARENT_MODIFIED_IN_CHILD,
                 PARENT_AFTER_CREATE_TTL_TASK, PARENT_AFTER_CREATE_TTL_TASK
         );
+    }
+
+    private static void checkThreadPoolExecutorForRemoveMethod(ThreadPoolExecutor executor) throws Exception {
+        final AtomicBoolean touched = new AtomicBoolean(false);
+
+        final int COUNT = 4;
+        final CountDownLatch latch = new CountDownLatch(COUNT);
+        for (int i = 0; i < COUNT; i++) {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(1000);
+                        System.out.println("Run sleep task!");
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    } finally {
+                        latch.countDown();
+                    }
+                }
+            });
+        }
+
+        final Runnable taskToRemove = new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("Run taskToRemove!");
+                touched.set(true);
+            }
+        };
+        executor.execute(taskToRemove);
+        executor.remove(taskToRemove);
+
+        // wait sleep task finished.
+        if (!latch.await(3, TimeUnit.SECONDS)) {
+            throw new RuntimeException("Fail to finished in time!");
+        }
+
+        /////////////////////////////////////////////////////////////
+        // Is ThreadPoolExecutor#remove method take effect?
+        /////////////////////////////////////////////////////////////
+
+        // task is directly removed from work queue, so not cancelled!
+        assertEquals(0, executor.getActiveCount());
+        assertFalse(touched.get());
     }
 
     private static void checkScheduledExecutorService(ScheduledExecutorService scheduledExecutorService, ConcurrentMap<String, TransmittableThreadLocal<String>> ttlInstances) throws Exception {
